@@ -1,0 +1,94 @@
+name: iOS (Expo)
+
+# - Cambios de código en main: se publican al momento como actualización (la app los descarga al abrirse).
+# - Cambios de dependencias o de app.json, o lanzándolo a mano: se compila una versión nueva para TestFlight.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build:
+        description: 'Compilar versión nueva para TestFlight'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - run: npm ci
+
+      - run: npx tsc --noEmit
+
+      # Enlaza el proyecto con Expo y configura las actualizaciones. Si cambia app.json, se guarda en el repositorio.
+      - name: Enlazar proyecto Expo
+        run: |
+          eas init --non-interactive --force
+          eas update:configure --platform ios --non-interactive || true
+          if ! git diff --quiet -- app.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app.json
+            git commit -m "Enlazar proyecto con Expo"
+            git push
+            echo "LINKED_NOW=1" >> "$GITHUB_ENV"
+          fi
+
+      # Clave opcional de App Store Connect (secretos ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8).
+      - name: Clave de App Store Connect
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          if [ -n "$ASC_KEY_P8" ]; then
+            printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc.p8"
+            echo "EXPO_ASC_API_KEY_PATH=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
+            echo "EXPO_ASC_KEY_ID=$ASC_KEY_ID" >> "$GITHUB_ENV"
+            echo "EXPO_ASC_ISSUER_ID=$ASC_ISSUER_ID" >> "$GITHUB_ENV"
+          fi
+
+      - name: ¿Compilar o actualizar?
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "build=${{ inputs.build }}" >> "$GITHUB_OUTPUT"
+          elif [ "${LINKED_NOW:-0}" = "1" ] || git diff --name-only HEAD~1 HEAD | grep -qE '^(package\.json|package-lock\.json|app\.json|eas\.json|assets/)'; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compilar para TestFlight
+        if: steps.mode.outputs.build == 'true'
+        run: |
+          if grep -q '"ascAppId"' eas.json; then
+            eas build --platform ios --profile production --non-interactive --no-wait --auto-submit
+          else
+            eas build --platform ios --profile production --non-interactive --no-wait
+          fi
+
+      - name: Publicar actualización
+        if: steps.mode.outputs.build != 'true'
+        run: eas update --channel production --platform ios --non-interactive --message "${{ github.event.head_commit.message || 'Actualización' }}"
