@@ -29,7 +29,7 @@ while True:
     i = child.expect([r"\?.*(\(Y/n\)|\(y/N\)|›|❯|Select|Choose)", pexpect.EOF, pexpect.TIMEOUT])
     if i == 0:
         answers += 1
-        if answers > 25:
+        if answers > 15:
             print("\nDemasiadas preguntas; se para.")
             child.terminate(force=True)
             sys.exit(1)
