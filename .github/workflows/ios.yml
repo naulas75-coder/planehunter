@@ -11,6 +11,10 @@ on:
         description: 'Compilar versión nueva para TestFlight'
         type: boolean
         default: true
+      credentials:
+        description: 'Crear credenciales de Apple (solo la primera vez)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -80,8 +84,16 @@ jobs:
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Primera vez: EAS solo crea el perfil de Apple en modo interactivo. Se simula un terminal
+      # y se acepta cada pregunta con la opción por defecto; la clave de App Store Connect hace de login.
+      - name: Crear credenciales y compilar
+        if: steps.mode.outputs.build == 'true' && inputs.credentials
+        timeout-minutes: 15
+        run: |
+          yes '' | script -qefc "eas build --platform ios --profile production --no-wait" /dev/null
+
       - name: Compilar para TestFlight
-        if: steps.mode.outputs.build == 'true'
+        if: steps.mode.outputs.build == 'true' && !inputs.credentials
         run: |
           if grep -q '"ascAppId"' eas.json; then
             eas build --platform ios --profile production --non-interactive --no-wait --auto-submit
