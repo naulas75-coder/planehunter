@@ -24,6 +24,15 @@
     },
     "plugins": [
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4509edbd-30c9-4c44-a5b9-e5bb43d92aa1"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4509edbd-30c9-4c44-a5b9-e5bb43d92aa1"
+    },
+    "android": {}
   }
 }
