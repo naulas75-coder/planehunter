@@ -117,4 +117,8 @@ jobs:
 
       - name: Enviar a TestFlight la última compilación
         if: github.event_name == 'workflow_dispatch' && inputs.submit_latest
-        run: eas submit --platform ios --profile production --latest --non-interactive --no-wait
+        run: |
+          # La clave de App Store Connect se añade a eas.json solo durante el envío (no se guarda en el repositorio).
+          jq --arg p "$EXPO_ASC_API_KEY_PATH" --arg k "$EXPO_ASC_KEY_ID" --arg i "$EXPO_ASC_ISSUER_ID" \
+            '.submit.production.ios += {ascApiKeyPath: $p, ascApiKeyId: $k, ascApiKeyIssuerId: $i}' eas.json > eas.tmp && mv eas.tmp eas.json
+          eas submit --platform ios --profile production --latest --non-interactive --no-wait
