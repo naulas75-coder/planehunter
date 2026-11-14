@@ -12,6 +12,9 @@ export const colors = {
   primaryText: '#FFFFFF',
   plane: '#8C9AA8',
   favorite: '#3F6E9C',
+  // Avión seleccionado en el mapa (amarillo, pedido por Jaume).
+  selected: '#F2C230',
+  selectedBorder: '#8A6D12',
   danger: '#9C5B5B',
 };
 
