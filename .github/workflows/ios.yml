@@ -15,6 +15,10 @@ on:
         description: 'Crear credenciales de Apple (solo la primera vez)'
         type: boolean
         default: false
+      submit_latest:
+        description: 'Enviar a TestFlight la última versión compilada'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -108,5 +112,9 @@ jobs:
           fi
 
       - name: Publicar actualización
-        if: steps.mode.outputs.build != 'true'
+        if: steps.mode.outputs.build != 'true' && !inputs.submit_latest
         run: eas update --channel production --platform ios --non-interactive --message "${{ github.event.head_commit.message || 'Actualización' }}"
+
+      - name: Enviar a TestFlight la última compilación
+        if: github.event_name == 'workflow_dispatch' && inputs.submit_latest
+        run: eas submit --platform ios --profile production --latest --non-interactive --no-wait
