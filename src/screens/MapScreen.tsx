@@ -1,9 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
-import type { Flight } from '../api/traffic';
+import { fetchRoute, type Flight } from '../api/traffic';
 import { formatAltitude } from '../components/FlightRow';
 import { useSettings } from '../state/settings';
 import { useTraffic } from '../state/traffic';
@@ -42,7 +42,7 @@ export function MapScreen({ selectedId, onSelect }: Props) {
         </Marker>
         {flights.map((f) => (
           <PlaneMarker
-            key={f.id}
+            key={`${f.id}-${f.id === selectedId ? 's' : 'n'}`}
             flight={f}
             favorite={!!f.type && favoriteCodes.has(f.type)}
             selected={f.id === selectedId}
@@ -57,8 +57,8 @@ export function MapScreen({ selectedId, onSelect }: Props) {
 }
 
 function PlaneMarker({ flight, favorite, selected, onPress }: { flight: Flight; favorite: boolean; selected: boolean; onPress: () => void }) {
-  const color = selected ? colors.text : favorite ? colors.favorite : colors.plane;
-  const size = favorite || selected ? 30 : 20;
+  const color = selected ? colors.selected : favorite ? colors.favorite : colors.plane;
+  const size = selected ? 38 : favorite ? 30 : 20;
   return (
     <Marker
       coordinate={{ latitude: flight.lat, longitude: flight.lon }}
@@ -72,13 +72,51 @@ function PlaneMarker({ flight, favorite, selected, onPress }: { flight: Flight; 
     >
       {/* El icono apunta al noreste (45°): se compensa. */}
       <View style={{ transform: [{ rotate: `${flight.track - 45}deg` }] }}>
-        <MaterialCommunityIcons name="airplane" size={size} color={color} />
+        {selected ? (
+          // Contorno oscuro para que el amarillo se vea sobre el mapa claro.
+          <View>
+            <MaterialCommunityIcons name="airplane" size={size + 4} color={colors.selectedBorder} style={{ position: 'absolute', left: -2, top: -2 }} />
+            <MaterialCommunityIcons name="airplane" size={size} color={color} />
+          </View>
+        ) : (
+          <MaterialCommunityIcons name="airplane" size={size} color={color} />
+        )}
       </View>
     </Marker>
   );
 }
 
+function Row({ label, value }: { label: string; value?: string | number | null }) {
+  if (value === undefined || value === null || value === '') return null;
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValue}>{value}</Text>
+    </View>
+  );
+}
+
+function place(code?: string, name?: string) {
+  if (!code) return undefined;
+  return name ? `${name} (${code})` : code;
+}
+
 function FlightCard({ flight, favorite, onClose }: { flight: Flight; favorite: boolean; onClose: () => void }) {
+  // Si la ruta no vino con los datos (solo se pide para favoritos), se pide al abrir la ficha.
+  const [route, setRoute] = useState<Pick<Flight, 'origin' | 'destination' | 'originName' | 'destinationName'>>({});
+  useEffect(() => {
+    setRoute({});
+    if (flight.destination || flight.callsign === '—') return;
+    let alive = true;
+    fetchRoute(flight).then((r) => alive && r && setRoute(r)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [flight.id]);
+
+  const origin = flight.origin ?? route.origin;
+  const destination = flight.destination ?? route.destination;
+  const vertical = Math.round(flight.verticalFpm);
   return (
     <View style={styles.card}>
       <View style={styles.cardHead}>
@@ -90,15 +128,26 @@ function FlightCard({ flight, favorite, onClose }: { flight: Flight; favorite: b
           <MaterialCommunityIcons name="close" size={22} color={colors.textMuted} />
         </Pressable>
       </View>
-      <Text style={styles.cardLine}>{[flight.typeLabel ?? flight.type, flight.registration, flight.operator].filter(Boolean).join('  ·  ')}</Text>
-      <Text style={styles.cardLine}>
-        {formatAltitude(flight.altitudeFt)}  ·  {Math.round(flight.speedKt * 1.852)} km/h  ·  a {Math.round(flight.distanceKm)} km
-      </Text>
-      {flight.arriving ? (
-        <Text style={styles.cardEta}>
-          Llega en unos {flight.etaMin} min{flight.origin ? ` · desde ${flight.origin}` : ''}
-        </Text>
-      ) : null}
+      {flight.arriving ? <Text style={styles.cardEta}>Llega en unos {flight.etaMin} min</Text> : null}
+      <ScrollView style={styles.rows}>
+        <Row label="Modelo" value={flight.model ?? flight.typeLabel} />
+        <Row label="Código de tipo" value={flight.type} />
+        <Row label="Matrícula" value={flight.registration} />
+        <Row label="Operador" value={flight.operator} />
+        <Row label="Año de fabricación" value={flight.year} />
+        <Row label="Origen" value={place(origin, flight.originName ?? route.originName)} />
+        <Row label="Destino" value={place(destination, flight.destinationName ?? route.destinationName)} />
+        <Row label="Altitud" value={formatAltitude(flight.altitudeFt)} />
+        <Row label="Velocidad" value={`${Math.round(flight.speedKt * 1.852)} km/h (${Math.round(flight.speedKt)} nudos)`} />
+        <Row
+          label="Vel. vertical"
+          value={vertical === 0 ? 'Nivelado' : `${vertical > 0 ? 'Subiendo' : 'Bajando'} ${Math.abs(vertical)} ft/min`}
+        />
+        <Row label="Rumbo" value={`${Math.round(flight.track)}°`} />
+        <Row label="Distancia al aeropuerto" value={`${Math.round(flight.distanceKm)} km`} />
+        <Row label="Squawk" value={flight.squawk} />
+        <Row label="Código ICAO (transpondedor)" value={flight.id.toUpperCase()} />
+      </ScrollView>
     </View>
   );
 }
@@ -124,6 +173,16 @@ const styles = StyleSheet.create({
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
   cardFav: { fontSize: 14, fontWeight: '500', color: colors.favorite },
-  cardLine: { fontSize: 14, color: colors.textMuted },
-  cardEta: { fontSize: 15, fontWeight: '600', color: colors.primary, marginTop: 4 },
+  cardEta: { fontSize: 15, fontWeight: '600', color: colors.primary, marginTop: 2 },
+  rows: { maxHeight: 300, marginTop: 6 },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  rowLabel: { fontSize: 14, color: colors.textMuted },
+  rowValue: { fontSize: 14, color: colors.text, fontWeight: '500', flexShrink: 1, textAlign: 'right' },
 });

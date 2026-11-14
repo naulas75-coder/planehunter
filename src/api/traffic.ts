@@ -19,6 +19,8 @@ type RawAircraft = {
   gs?: number;
   track?: number;
   baro_rate?: number;
+  squawk?: string;
+  year?: string;
 };
 
 export type Flight = {
@@ -39,7 +41,13 @@ export type Flight = {
   arriving: boolean;
   routeConfirmed: boolean;
   origin?: string;
+  destination?: string;
+  originName?: string;
+  destinationName?: string;
   etaMin?: number;
+  model?: string; // descripción completa del modelo, p. ej. "AIRBUS A-380-800"
+  squawk?: string;
+  year?: string;
 };
 
 const toRad = (d: number) => (d * Math.PI) / 180;
@@ -78,7 +86,12 @@ function etaMinutes(f: Flight) {
   return Math.max(1, Math.round(hours * 60 * 1.15 + 3));
 }
 
-type RouteInfo = { origin?: string; destination?: string };
+type RouteInfo = { origin?: string; destination?: string; originName?: string; destinationName?: string };
+
+// Ruta de un solo vuelo (para la ficha del avión seleccionado).
+export async function fetchRoute(f: Flight): Promise<RouteInfo | undefined> {
+  return (await fetchRoutes([f])).get(f.callsign);
+}
 
 async function fetchRoutes(planes: Flight[]): Promise<Map<string, RouteInfo>> {
   const out = new Map<string, RouteInfo>();
@@ -91,11 +104,22 @@ async function fetchRoutes(planes: Flight[]): Promise<Map<string, RouteInfo>> {
       body: JSON.stringify({ planes: withCallsign.map((p) => ({ callsign: p.callsign, lat: p.lat, lng: p.lon })) }),
     });
     if (!res.ok) return out;
-    const data = (await res.json()) as { callsign?: string; airport_codes?: string; plausible?: boolean | number }[];
+    const data = (await res.json()) as {
+      callsign?: string;
+      airport_codes?: string;
+      plausible?: boolean | number;
+      _airports?: { icao?: string; name?: string; location?: string }[];
+    }[];
     for (const r of data ?? []) {
       if (!r.callsign || !r.airport_codes || r.airport_codes === 'unknown' || !r.plausible) continue;
       const codes = r.airport_codes.split('-');
-      out.set(r.callsign, { origin: codes[0], destination: codes[codes.length - 1] });
+      const origin = codes[0];
+      const destination = codes[codes.length - 1];
+      const nameOf = (icao: string) => {
+        const a = r._airports?.find((x) => x.icao === icao);
+        return a ? a.location || a.name : undefined;
+      };
+      out.set(r.callsign, { origin, destination, originName: nameOf(origin), destinationName: nameOf(destination) });
     }
   } catch {
     // Sin rutas: se usa solo el rumbo.
@@ -119,6 +143,9 @@ export async function fetchTraffic(airport: Airport, favoriteCodes: Set<string>)
       type: a.t,
       typeLabel: groupForType(a.t)?.label ?? a.desc,
       operator: a.ownOp,
+      model: a.desc,
+      squawk: a.squawk,
+      year: a.year,
       lat: a.lat,
       lon: a.lon,
       altitudeFt: onGround ? null : typeof a.alt_baro === 'number' ? a.alt_baro : null,
@@ -140,6 +167,9 @@ export async function fetchTraffic(airport: Airport, favoriteCodes: Set<string>)
     const route = routes.get(f.callsign);
     if (route?.destination) {
       f.origin = route.origin;
+      f.destination = route.destination;
+      f.originName = route.originName;
+      f.destinationName = route.destinationName;
       f.routeConfirmed = route.destination === airport.icao;
       f.arriving = f.routeConfirmed && f.altitudeFt !== null;
     } else {

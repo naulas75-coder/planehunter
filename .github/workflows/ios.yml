@@ -11,6 +11,14 @@ on:
         description: 'Compilar versión nueva para TestFlight'
         type: boolean
         default: true
+      credentials:
+        description: 'Crear credenciales de Apple (solo la primera vez)'
+        type: boolean
+        default: false
+      submit_latest:
+        description: 'Enviar a TestFlight la última versión compilada'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -61,12 +69,20 @@ jobs:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          if [ -n "$APPLE_TEAM_ID" ]; then
+            echo "EXPO_APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+            echo "EXPO_APPLE_TEAM_TYPE=INDIVIDUAL" >> "$GITHUB_ENV"
+          fi
           if [ -n "$ASC_KEY_P8" ]; then
             printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc.p8"
             echo "EXPO_ASC_API_KEY_PATH=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
             echo "EXPO_ASC_KEY_ID=$ASC_KEY_ID" >> "$GITHUB_ENV"
             echo "EXPO_ASC_ISSUER_ID=$ASC_ISSUER_ID" >> "$GITHUB_ENV"
+            # Para enviar a TestFlight, la clave se añade a eas.json solo en esta ejecución (no se guarda en el repositorio).
+            jq --arg p "$RUNNER_TEMP/asc.p8" --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" \
+              '.submit.production.ios += {ascApiKeyPath: $p, ascApiKeyId: $k, ascApiKeyIssuerId: $i}' eas.json > eas.tmp && mv eas.tmp eas.json
           fi
 
       - name: ¿Compilar o actualizar?
@@ -80,8 +96,17 @@ jobs:
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Primera vez: EAS solo crea el perfil de Apple en modo interactivo. Se simula un terminal
+      # y se acepta cada pregunta con la opción por defecto; la clave de App Store Connect hace de login.
+      - name: Crear credenciales y compilar
+        if: steps.mode.outputs.build == 'true' && inputs.credentials
+        timeout-minutes: 15
+        run: |
+          pip install --quiet pexpect
+          python3 scripts/eas-interactive.py
+
       - name: Compilar para TestFlight
-        if: steps.mode.outputs.build == 'true'
+        if: steps.mode.outputs.build == 'true' && !inputs.credentials
         run: |
           if grep -q '"ascAppId"' eas.json; then
             eas build --platform ios --profile production --non-interactive --no-wait --auto-submit
@@ -90,5 +115,9 @@ jobs:
           fi
 
       - name: Publicar actualización
-        if: steps.mode.outputs.build != 'true'
+        if: steps.mode.outputs.build != 'true' && !inputs.submit_latest
         run: eas update --channel production --platform ios --non-interactive --message "${{ github.event.head_commit.message || 'Actualización' }}"
+
+      - name: Enviar a TestFlight la última compilación
+        if: github.event_name == 'workflow_dispatch' && inputs.submit_latest
+        run: eas submit --platform ios --profile production --latest --non-interactive --no-wait
