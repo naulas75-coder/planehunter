@@ -90,7 +90,8 @@ jobs:
         if: steps.mode.outputs.build == 'true' && inputs.credentials
         timeout-minutes: 15
         run: |
-          yes '' | script -qefc "eas build --platform ios --profile production --no-wait" /dev/null
+          pip install --quiet pexpect
+          python3 scripts/eas-interactive.py
 
       - name: Compilar para TestFlight
         if: steps.mode.outputs.build == 'true' && !inputs.credentials
