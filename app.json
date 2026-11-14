@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "PlaneHunter",
+    "slug": "planehunter",
+    "owner": "jaumeluesma",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#EEF3F8"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.naulas75.planehunter",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "plugins": [
+      "expo-status-bar"
+    ]
+  }
+}
